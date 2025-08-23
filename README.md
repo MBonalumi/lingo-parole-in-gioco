@@ -1,0 +1,1 @@
+# lingo-parole-in-gioco
