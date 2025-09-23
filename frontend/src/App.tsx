@@ -3,6 +3,9 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 
+// Get API URL from environment variables
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
 function App() {
   const [selectedNumber, setSelectedNumber] = useState(5)
   const [currentRow, setCurrentRow] = useState(0)
@@ -181,7 +184,7 @@ export function ResetButton({
       setKnownLetters(Array(cols).fill(''))
       
       // Call backend reset
-      const response = await fetch('http://127.0.0.3:8000/reset', {
+      const response = await fetch(`${API_URL}/reset`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -303,7 +306,7 @@ export function EnterButton({
     }
     
     try {
-      const response = await fetch('http://127.0.0.3:8000/guess', {
+      const response = await fetch(`${API_URL}/guess`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
