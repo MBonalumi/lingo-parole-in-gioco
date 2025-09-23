@@ -15,6 +15,7 @@ function App() {
   const [scores, setScores] = useState<number[][]>([])
   const [knownLetters, setKnownLetters] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
+  const [keyboardStates, setKeyboardStates] = useState<Record<string, number>>({})
 
   // Initialize grid when selectedNumber changes
   useEffect(() => {
@@ -39,9 +40,15 @@ function App() {
       const currentPos = currentRowData.findIndex(cell => cell === '')
 
       if (event.key === 'Enter') {
-        // Trigger enter button functionality
-        const enterButton = document.querySelector('button[data-enter="true"]') as HTMLButtonElement
-        enterButton?.click()
+        // Submit the current row
+        if (currentRow < grid.length && !roundOver) {
+          const currentRowContent = grid[currentRow].join('')
+          if (currentRowContent.length === selectedNumber) {
+            // Create a synthetic click on the virtual keyboard ENTER button
+            const enterButton = document.querySelector('[data-key="ENTER"]') as HTMLButtonElement
+            enterButton?.click()
+          }
+        }
       } else if (event.key === 'Backspace' && currentPos !== 0) {
         // Find last filled position and clear it
         const lastFilledPos = currentRowData.length - 1 - [...currentRowData].reverse().findIndex(cell => cell !== '')
@@ -107,19 +114,108 @@ function App() {
         setKnownLetters={setKnownLetters}
         sessionId={sessionId}
         setSessionId={setSessionId}
+        setKeyboardStates={setKeyboardStates}
       />
       <GameGrid grid={grid} scores={scores} />
-      <EnterButton 
-        grid={grid} 
-        currentRow={currentRow} 
-        setCurrentRow={setCurrentRow} 
-        setResponse={setResponse}
-        wordLength={selectedNumber}
-        roundOver={roundOver}
-        setScores={setScores}
-        setRoundOver={setRoundOver}
-        updateGridWithKnownLetters={updateGridWithKnownLetters}
-        sessionId={sessionId}
+      <VirtualKeyboard 
+        keyboardStates={keyboardStates}
+        onKeyPress={(key) => {
+          // Simulate keyboard event
+          const event = new KeyboardEvent('keydown', { key });
+          window.dispatchEvent(event);
+        }}
+        onEnter={() => {
+          // Handle Enter button functionality
+          if (currentRow >= grid.length || roundOver) return
+          
+          const currentRowContent = grid[currentRow].join('')
+          
+          // Only proceed if the row is completely filled
+          if (currentRowContent.length !== selectedNumber) {
+            setResponse('Please fill the entire row before submitting')
+            return
+          }
+          
+          if (!sessionId) {
+            setResponse('No session ID. Please reset the game first.')
+            return
+          }
+          
+          // Call the guess API
+          fetch(`${API_URL}/guess`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              guess: currentRowContent,
+              session_id: sessionId
+            })
+          })
+          .then(response => response.json().then(data => ({ status: response.status, data })))
+          .then(({ status, data }) => {
+            setResponse(JSON.stringify(data, null, 2))
+
+            if (status !== 200) {
+              // Color all cells in the current row red (using score -1 as red indicator)
+              setScores((prevScores: number[][]) => {
+                const newScores = [...prevScores]
+                newScores[currentRow] = Array(selectedNumber).fill(-1)
+                return newScores
+              })
+              return
+            }
+            
+            // Update scores with the returned score array
+            if (data.score && Array.isArray(data.score)) {
+              setScores((prevScores: number[][]) => {
+                const newScores = [...prevScores]
+                newScores[currentRow] = [...data.score] // Create a copy of the score array
+                return newScores
+              })
+              
+              // Update keyboard states based on the score
+              const currentRowContent = grid[currentRow]
+              setKeyboardStates(prevStates => {
+                const newStates = { ...prevStates }
+                currentRowContent.forEach((letter, index) => {
+                  const score = data.score[index]
+                  const currentState = newStates[letter]
+                  
+                  // If letter hasn't been tried yet (undefined) or new score is better
+                  // Don't downgrade from positive scores (1 or 2) to 0
+                  if (currentState === undefined || (score > currentState) || (score === 0 && (currentState === undefined || currentState < 0))) {
+                    console.log(`Setting keyboard state for ${letter}: ${score} (was ${currentState})`)
+                    newStates[letter] = score
+                  }
+                })
+                console.log('New keyboard states:', newStates)
+                return newStates
+              })
+            }
+            
+            // Handle guess_state if present in response
+            if (data.guess_state) {
+              updateGridWithKnownLetters(data.guess_state, currentRow + 1)
+            }
+            
+            // Check if round is over and move to next row
+            if (data.round_over) {
+              setRoundOver(true)
+              return
+            } else {
+              setCurrentRow(currentRow + 1)
+            }
+          })
+          .catch(error => {
+            console.error('Guess failed:', error)
+            setResponse('Error: ' + error)
+          })
+        }}
+        onBackspace={() => {
+          const event = new KeyboardEvent('keydown', { key: 'Backspace' });
+          window.dispatchEvent(event);
+        }}
       />
       <div style={{ marginTop: '20px' }}>
         <textarea 
@@ -155,7 +251,8 @@ export function ResetButton({
   setRoundOver,
   setKnownLetters,
   sessionId,
-  setSessionId
+  setSessionId,
+  setKeyboardStates
 }: { 
   wordLength: number,
   setGrid: (grid: string[][]) => void,
@@ -165,7 +262,8 @@ export function ResetButton({
   setRoundOver: (roundOver: boolean) => void,
   setKnownLetters: (knownLetters: string[]) => void,
   sessionId: string | null,
-  setSessionId: (sessionId: string) => void
+  setSessionId: (sessionId: string) => void,
+  setKeyboardStates: (states: Record<string, number>) => void
 }) {
   const handleReset = async () => {
     // Remove focus from the button to prevent accidental Enter key presses
@@ -182,6 +280,7 @@ export function ResetButton({
       setScores(Array(rows).fill(null).map(() => Array(cols).fill(0)))
       setRoundOver(false)
       setKnownLetters(Array(cols).fill(''))
+      setKeyboardStates({})
       
       // Call backend reset
       const response = await fetch(`${API_URL}/reset`, {
@@ -228,10 +327,10 @@ export function ResetButton({
 export function GameGrid({ grid, scores }: { grid: string[][], scores: number[][] }) {
   const getCellBackgroundColor = (score: number) => {
     switch (score) {
-      case 2: return '#4ade80' // green for correct position
+      case 2: return '#39ad63ff' // green for correct position  
       case 1: return '#fbbf24' // yellow for correct letter, wrong position
       case -1: return '#ef4444' // red for error/invalid word
-      default: return '#fff' // white for incorrect
+      default: return '#454545ff' // dark grey for incorrect/empty
     }
   }
 
@@ -243,9 +342,9 @@ export function GameGrid({ grid, scores }: { grid: string[][], scores: number[][
             <div
               key={colIndex}
               style={{
-                width: '40px',
-                height: '40px',
-                border: '2px solid #ccc',
+                width: '50px',
+                height: '50px',
+                border: '0px solid #ccc',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -263,119 +362,81 @@ export function GameGrid({ grid, scores }: { grid: string[][], scores: number[][
   )
 }
 
-export function EnterButton({ 
-  grid, 
-  currentRow, 
-  setCurrentRow, 
-  setResponse,
-  wordLength,
-  roundOver,
-  setScores,
-  setRoundOver,
-  updateGridWithKnownLetters,
-  sessionId
+export function VirtualKeyboard({ 
+  keyboardStates, 
+  onKeyPress, 
+  onEnter, 
+  onBackspace 
 }: { 
-  grid: string[][], 
-  currentRow: number, 
-  setCurrentRow: (row: number) => void,
-  setResponse: (response: string) => void,
-  wordLength: number,
-  roundOver: boolean,
-  setScores: (scores: number[][] | ((prev: number[][]) => number[][])) => void,
-  setRoundOver: (roundOver: boolean) => void,
-  updateGridWithKnownLetters: (guessState: string, targetRow: number) => void,
-  sessionId: string | null
-}) {
-  const handleEnter = async () => {
-    // Remove focus from the button to prevent accidental Enter key presses
-    (document.activeElement as HTMLElement)?.blur()
+  keyboardStates: Record<string, number>
+  onKeyPress: (key: string) => void
+  onEnter: () => void
+  onBackspace: () => void
+}) {  
+  const getKeyBackgroundColor = (letter: string) => {
+    const state = keyboardStates[letter]
+    console.log(`Getting color for ${letter}: state=${state}`)
     
-    if (currentRow >= grid.length || roundOver) return
+    // If state is explicitly set
+    if (state !== undefined) {
+      switch (state) {
+        case 2: return '#39ad63ff' // green for correct position
+        case 1: return '#fbbf24' // yellow for correct letter, wrong position
+        case 0: return '#272727ff' // dark gray for confirmed not in word
+        case -1: return '#ef4444' // red for error/invalid word
+        default: return '#646464ff' // light gray fallback
+      }
+    } 
     
-    const currentRowContent = grid[currentRow].join('')
-    
-    // Only proceed if the row is completely filled
-    if (currentRowContent.length !== wordLength) {
-      setResponse('Please fill the entire row before submitting')
-      return
-    }
-    
-    if (!sessionId) {
-      setResponse('No session ID. Please reset the game first.')
-      return
-    }
-    
-    try {
-      const response = await fetch(`${API_URL}/guess`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          guess: currentRowContent,
-          session_id: sessionId
-        })
-      })
-      
-      const data = await response.json()
-      setResponse(JSON.stringify(data, null, 2))
+    // Default for unused letters 
+    return '#5c5c5cff' // light gray for unused
+  }
+  
+  const keyRows = [
+    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L'],
+    ['ENTER', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '⌫']
+  ]
 
-      if (response.status !== 200) {
-        // Color all cells in the current row red (using score -1 as red indicator)
-        setScores((prevScores: number[][]) => {
-          const newScores = [...prevScores]
-          newScores[currentRow] = Array(wordLength).fill(-1)
-          return newScores
-        })
-        return
-      }
-      
-      // Update scores with the returned score array
-      if (data.score && Array.isArray(data.score)) {
-        setScores((prevScores: number[][]) => {
-          const newScores = [...prevScores]
-          newScores[currentRow] = [...data.score] // Create a copy of the score array
-          return newScores
-        })
-      }
-      
-      // Handle guess_state if present in response
-      if (data.guess_state) {
-        updateGridWithKnownLetters(data.guess_state, currentRow + 1)
-      }
-      
-      // Check if round is over and move to next row
-      if (data.round_over) {
-        setRoundOver(true)
-        return
-      } else {
-        setCurrentRow(currentRow + 1)
-      }
-    } catch (error) {
-      console.error('Guess failed:', error)
-      setResponse('Error: ' + error)
+  const handleKeyClick = (key: string) => {
+    if (key === 'ENTER') {
+      onEnter()
+    } else if (key === '⌫') {
+      onBackspace()
+    } else {
+      onKeyPress(key)
     }
   }
 
-  const currentRowContent = grid[currentRow]?.join('') || ''
-  const isRowFull = currentRowContent.length === wordLength
-
   return (
-    <div style={{ marginTop: '10px' }}>
-      <button 
-        onClick={handleEnter} 
-        data-enter="true"
-        disabled={!isRowFull || roundOver}
-        style={{ 
-          padding: '10px 20px', 
-          fontSize: '16px',
-          backgroundColor: (isRowFull && !roundOver) ? '#007bff' : '#ccc',
-          color: (isRowFull && !roundOver) ? 'white' : '#666',
-          cursor: (isRowFull && !roundOver) ? 'pointer' : 'not-allowed'
-        }}
-      >
-        ENTER
-      </button>
+    <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
+      {keyRows.map((row, rowIndex) => (
+        <div key={rowIndex} style={{ display: 'flex', gap: '3px' }}>
+          {row.map((key) => (
+            <button
+              key={key}
+              data-key={key}
+              onClick={() => handleKeyClick(key)}
+              style={{
+                padding: key === 'ENTER' || key === '⌫' ? '8px 12px' : '8px 6px',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                border: '0px solid #9ca3af',
+                borderRadius: '4px',
+                backgroundColor: key === 'ENTER' || key === '⌫' ? '#3d3d3dff' : getKeyBackgroundColor(key),
+                cursor: 'pointer',
+                minWidth: key === 'ENTER' ? '60px' : key === '⌫' ? '40px' : '32px',
+                height: '40px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center'
+              }}
+            >
+              {key}
+            </button>
+          ))}
+        </div>
+      ))}
     </div>
   )
 }
