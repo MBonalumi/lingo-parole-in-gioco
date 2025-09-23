@@ -5,6 +5,7 @@ from typing import Optional, Dict
 from core.game_logic import GameLogic
 import uuid
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(
@@ -13,15 +14,19 @@ logging.basicConfig(
 )
 logger = logging.getLogger("lingo_game")
 
-app = FastAPI(title="Lingo Game API", description="Word guessing game API")
+app = FastAPI()
 
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],  # Common frontend dev ports
-    allow_credentials=False,  # Set to False when not using credentials
-    allow_methods=["GET", "POST"],  # Only allow needed methods
-    allow_headers=["Content-Type"],  # Only allow needed headers
+    allow_origins=[
+        "https://mbonalumi.github.io",  # Replace with your GitHub Pages URL
+        "http://localhost:5173",  # For local development
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Session-based game instances
@@ -157,4 +162,5 @@ async def get_game_status(session_id: str):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000) 
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
