@@ -25,6 +25,7 @@ class GameLogic:
         self.guesses = []
         # self.guess_state = [0]*self.word_length # 0=not guessed, 1=yellow, 2=green
         self.guess_state = ['_']*self.word_length # '_'=not guessed, letter=guessed correctly
+        self.guess_state[0] = self.current_word[0] # first letter is always revealed, guesses must start with it.
         self.round_over = False
         self.round_won = False
 
@@ -59,7 +60,11 @@ class GameLogic:
 
     def make_guess(self, guess: str):
         if len(guess) != self.word_length:
-            raise ValueError(f"Guess must be {self.word_length} letters long.")
+            raise ValueError(f"[1001] Guess must be {self.word_length} letters long.")
+        if guess.upper() not in self.words_database:
+            raise ValueError("[1002] Guess is not a valid word.")
+        if guess.upper()[0] != self.current_word.upper()[0]:
+            raise ValueError(f"[1003] Guess must start with the letter '{self.current_word[0]}'.")
         guess = guess.lower()
 
         self.attempts += 1

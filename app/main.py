@@ -1,26 +1,49 @@
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 from core.game_logic import GameLogic
+import uuid
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("lingo_game")
 
 app = FastAPI(title="Lingo Game API", description="Word guessing game API")
 
-# Global game instance cache
-game_instance: Optional[GameLogic] = None
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],  # Common frontend dev ports
+    allow_credentials=False,  # Set to False when not using credentials
+    allow_methods=["GET", "POST"],  # Only allow needed methods
+    allow_headers=["Content-Type"],  # Only allow needed headers
+)
+
+# Session-based game instances
+game_sessions: Dict[str, GameLogic] = {}
 
 class GuessRequest(BaseModel):
     guess: str
+    session_id: Optional[str] = None
 
 class GuessResponse(BaseModel):
     score: list[int]
     attempts: int
     round_over: bool
     round_won: bool
+    guess_state: list[str]
     current_word: Optional[str] = None  # Only revealed when round is over
+    session_id: str
 
 class ResetRequest(BaseModel):
     word_length: int = 5
     old_words: list[str] = []
+    session_id: Optional[str] = None
 
 class GameStatus(BaseModel):
     word_length: int
@@ -30,6 +53,7 @@ class GameStatus(BaseModel):
     guess_state: list[str]
     round_over: bool
     round_won: bool
+    session_id: str
 
 @app.get("/")
 async def root():
@@ -38,11 +62,20 @@ async def root():
 @app.post("/reset", response_model=GameStatus)
 async def reset_game(request: ResetRequest):
     """Reset the game with a new word of specified length"""
-    global game_instance
+    # Create new session ID if not provided
+    session_id = request.session_id or str(uuid.uuid4())
+    is_new_session = request.session_id is None
+    
+    logger.info(f"{'New' if is_new_session else 'Existing'} session reset - ID: {session_id}, word_length: {request.word_length}")
     
     try:
         game_instance = GameLogic(word_length=request.word_length)
         game_instance.initialize_round(old_words=request.old_words)
+        
+        # Store in sessions
+        game_sessions[session_id] = game_instance
+        
+        logger.info(f"Game initialized for session {session_id} - target word set, first letter: {game_instance.guess_state[0] if game_instance.guess_state else 'None'}")
         
         return GameStatus(
             word_length=game_instance.word_length,
@@ -51,44 +84,65 @@ async def reset_game(request: ResetRequest):
             guesses=game_instance.guesses,
             guess_state=game_instance.guess_state,
             round_over=game_instance.round_over,
-            round_won=game_instance.round_won
+            round_won=game_instance.round_won,
+            session_id=session_id
         )
     except Exception as e:
+        logger.error(f"Reset failed for session {session_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to reset game: {str(e)}")
 
 @app.post("/guess", response_model=GuessResponse)
 async def make_guess(request: GuessRequest):
     """Make a guess in the current game"""
-    global game_instance
+    if not request.session_id:
+        logger.warning("Guess attempt without session ID")
+        raise HTTPException(status_code=400, detail="Session ID is required.")
     
-    if game_instance is None:
-        raise HTTPException(status_code=400, detail="No active game. Please reset first.")
+    if request.session_id not in game_sessions:
+        logger.warning(f"Guess attempt for unknown session: {request.session_id}")
+        raise HTTPException(status_code=400, detail="No active game for this session. Please reset first.")
+    
+    game_instance = game_sessions[request.session_id]
     
     if game_instance.round_over:
+        logger.info(f"Guess attempt on finished game - session: {request.session_id}")
         raise HTTPException(status_code=400, detail="Round is over. Please reset to start a new round.")
+    
+    logger.info(f"Session {request.session_id} - Guess #{game_instance.attempts + 1}: '{request.guess}'")
     
     try:
         score = game_instance.make_guess(request.guess)
         
-        return GuessResponse(
+        logger.info(f"Session {request.session_id} - Score: {score}, Round over: {game_instance.round_over}, Won: {game_instance.round_won}")
+        
+        if game_instance.round_over:
+            logger.info(f"Session {request.session_id} - Game finished! Target word was: '{game_instance.current_word}'")
+        
+        return GuessResponse( 
             score=score,
             attempts=game_instance.attempts,
             round_over=game_instance.round_over,
             round_won=game_instance.round_won,
-            current_word=game_instance.current_word if game_instance.round_over else None
+            guess_state=game_instance.guess_state,
+            current_word=game_instance.current_word if game_instance.round_over else None,
+            session_id=request.session_id
         )
     except ValueError as e:
+        logger.warning(f"Session {request.session_id} - Invalid guess '{request.guess}': {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
+        logger.error(f"Session {request.session_id} - Guess processing failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to process guess: {str(e)}")
 
-@app.get("/status", response_model=GameStatus)
-async def get_game_status():
-    """Get current game status"""
-    global game_instance
+@app.get("/status/{session_id}", response_model=GameStatus)
+async def get_game_status(session_id: str):
+    """Get current game status for a session"""
+    if session_id not in game_sessions:
+        logger.warning(f"Status request for unknown session: {session_id}")
+        raise HTTPException(status_code=400, detail="No active game for this session. Please reset first.")
     
-    if game_instance is None:
-        raise HTTPException(status_code=400, detail="No active game. Please reset first.")
+    logger.debug(f"Status request for session: {session_id}")
+    game_instance = game_sessions[session_id]
     
     return GameStatus(
         word_length=game_instance.word_length,
@@ -97,7 +151,8 @@ async def get_game_status():
         guesses=game_instance.guesses,
         guess_state=game_instance.guess_state,
         round_over=game_instance.round_over,
-        round_won=game_instance.round_won
+        round_won=game_instance.round_won,
+        session_id=session_id
     )
 
 if __name__ == "__main__":
