@@ -43,4 +43,42 @@
 
 body {
   background-color: #202020;
+  margin: 0;
+  padding: 0;
+  overflow-x: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  width: 100vw;
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Mobile-specific adjustments */
+@media (max-width: 480px) {
+  body {
+    font-size: 14px;
+  }
+
+  /* Prevent horizontal scrolling */
+  html, body {
+    overflow-x: hidden;
+    width: 100%;
+  }
+
+  /* Adjust button sizes for mobile */
+  button {
+    touch-action: manipulation;
+  }
+}
+
+@media (max-width: 360px) {
+  /* Extra small screens */
+  body {
+    font-size: 12px;
+  }
 }

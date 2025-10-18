@@ -99,7 +99,15 @@ function App() {
   }
 
   return (
-    <>
+    <div style={{ 
+      maxWidth: '100vw', 
+      padding: '10px', 
+      boxSizing: 'border-box',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      minHeight: '100vh'
+    }}>
       <NumberDropdown 
         value={selectedNumber} 
         onChange={setSelectedNumber} 
@@ -217,16 +225,23 @@ function App() {
           window.dispatchEvent(event);
         }}
       />
-      <div style={{ marginTop: '20px' }}>
+      <div style={{ marginTop: '20px', width: '100%', maxWidth: '350px' }}>
         <textarea 
           value={response} 
           readOnly 
-          rows={5}
-          style={{ width: '400px', padding: '10px', resize: 'vertical' }}
+          rows={3}
+          style={{ 
+            width: '100%', 
+            padding: '8px', 
+            resize: 'vertical',
+            boxSizing: 'border-box',
+            fontSize: '12px',
+            fontFamily: 'monospace'
+          }}
           placeholder="Response will appear here..."
         />
       </div>
-    </>
+    </div>
   )
 }
 
@@ -320,7 +335,17 @@ export function ResetButton({
   }
 
   return (
-    <button onClick={handleReset}>RESET</button>
+    <button onClick={handleReset}
+    style={{
+      marginLeft: '10px',
+      color: 'white',
+      backgroundColor: '#3d3d3dff',
+      border: '0px solid #9ca3af',
+      borderRadius: '4px',
+      padding: '6px 12px',
+      cursor: 'pointer' 
+    }}
+    >RESET</button>
   )
 }
 
@@ -350,7 +375,8 @@ export function GameGrid({ grid, scores }: { grid: string[][], scores: number[][
                 justifyContent: 'center',
                 fontSize: '18px',
                 fontWeight: 'bold',
-                backgroundColor: getCellBackgroundColor(scores[rowIndex]?.[colIndex] || 0)
+                backgroundColor: getCellBackgroundColor(scores[rowIndex]?.[colIndex] || 0),
+                color: 'white',
               }}
             >
               {cell}
@@ -411,7 +437,7 @@ export function VirtualKeyboard({
   return (
     <div style={{ marginTop: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '5px' }}>
       {keyRows.map((row, rowIndex) => (
-        <div key={rowIndex} style={{ display: 'flex', gap: '3px' }}>
+        <div key={rowIndex} style={{ display: 'flex', gap: '3px', color: 'white' }}>
           {row.map((key) => (
             <button
               key={key}
@@ -424,6 +450,7 @@ export function VirtualKeyboard({
                 border: '0px solid #9ca3af',
                 borderRadius: '4px',
                 backgroundColor: key === 'ENTER' || key === '⌫' ? '#3d3d3dff' : getKeyBackgroundColor(key),
+                color: 'white',
                 cursor: 'pointer',
                 minWidth: key === 'ENTER' ? '60px' : key === '⌫' ? '40px' : '32px',
                 height: '40px',
