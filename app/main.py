@@ -14,7 +14,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("lingo_game")
 
-app = FastAPI()
+app = FastAPI(docs_url=None, redoc_url=None, openapi_url="/api/openapi.json")
 
 # Add CORS middleware
 app.add_middleware(
@@ -163,4 +163,4 @@ async def get_game_status(session_id: str):
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    uvicorn.run(app, host="0.0.0.0", port=port, )
