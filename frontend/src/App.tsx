@@ -10,7 +10,6 @@ function App() {
   const [selectedNumber, setSelectedNumber] = useState(5)
   const [currentRow, setCurrentRow] = useState(0)
   const [grid, setGrid] = useState<string[][]>([])
-  const [response, setResponse] = useState('')
   const [roundOver, setRoundOver] = useState(false)
   const [scores, setScores] = useState<number[][]>([])
   const [knownLetters, setKnownLetters] = useState<string[]>([])
@@ -19,6 +18,16 @@ function App() {
   const [showPopup, setShowPopup] = useState(false)
   const [gameResult, setGameResult] = useState<{won: boolean, correctWord?: string}>({won: false})
   const [showSettings, setShowSettings] = useState(false)
+  const [toasts, setToasts] = useState<{id: number, message: string, type: 'error' | 'info'}[]>([])
+
+  // Toast functions
+  const showToast = (message: string, type: 'error' | 'info' = 'info') => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message, type }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id))
+    }, 3000)
+  }
 
   // Initialize grid when selectedNumber changes
   useEffect(() => {
@@ -139,7 +148,6 @@ function App() {
         wordLength={selectedNumber} 
         setGrid={setGrid}
         setCurrentRow={setCurrentRow}
-        setResponse={setResponse}
         setScores={setScores}
         setRoundOver={setRoundOver}
         setKnownLetters={setKnownLetters}
@@ -147,6 +155,7 @@ function App() {
         setSessionId={setSessionId}
         setKeyboardStates={setKeyboardStates}
         setShowPopup={setShowPopup}
+        showToast={showToast}
       />
       <GameGrid grid={grid} scores={scores} />
       <VirtualKeyboard 
@@ -164,12 +173,12 @@ function App() {
           
           // Only proceed if the row is completely filled
           if (currentRowContent.length !== selectedNumber) {
-            setResponse('Please fill the entire row before submitting')
+            showToast('Completa la riga prima di inviarla', 'error')
             return
           }
           
           if (!sessionId) {
-            setResponse('No session ID. Please reset the game first.')
+            showToast('Nessun ID sessione. Resetta il gioco prima.', 'error')
             return
           }
           
@@ -186,8 +195,6 @@ function App() {
           })
           .then(response => response.json().then(data => ({ status: response.status, data })))
           .then(({ status, data }) => {
-            setResponse(JSON.stringify(data, null, 2))
-
             if (status !== 200) {
               // Color all cells in the current row red (using score -1 as red indicator)
               setScores((prevScores: number[][]) => {
@@ -195,6 +202,7 @@ function App() {
                 newScores[currentRow] = Array(selectedNumber).fill(-1)
                 return newScores
               })
+              showToast(data.detail || 'Parola non valida', 'error')
               return
             }
             
@@ -244,7 +252,7 @@ function App() {
                   correctWord: data.current_word || data.word || 'Unknown'
                 })
                 setShowPopup(true)
-              }, 500) // 1.5 second delay
+              }, 500) // 0.5 second delay
               
               return
             } else {
@@ -253,7 +261,7 @@ function App() {
           })
           .catch(error => {
             console.error('Guess failed:', error)
-            setResponse('Error: ' + error)
+            showToast('Errore di connessione', 'error')
           })
         }}
         onBackspace={() => {
@@ -261,6 +269,36 @@ function App() {
           window.dispatchEvent(event);
         }}
       />
+      
+      {/* Toast notifications */}
+      <div style={{
+        position: 'fixed',
+        bottom: '20px',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        zIndex: 2000,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: '10px'
+      }}>
+        {toasts.map(toast => (
+          <div
+            key={toast.id}
+            style={{
+              backgroundColor: toast.type === 'error' ? '#ef4444' : '#3b82f6',
+              color: 'white',
+              padding: '12px 20px',
+              borderRadius: '8px',
+              boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)',
+              animation: 'slideIn 0.3s ease-out',
+              minWidth: '200px',
+              textAlign: 'center'
+            }}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
       
       {showPopup && (
         <GameResultPopup 
@@ -297,26 +335,26 @@ export function ResetButton({
   wordLength,
   setGrid,
   setCurrentRow,
-  setResponse,
   setScores,
   setRoundOver,
   setKnownLetters,
   sessionId,
   setSessionId,
   setKeyboardStates,
-  setShowPopup
+  setShowPopup,
+  showToast
 }: { 
   wordLength: number,
   setGrid: (grid: string[][]) => void,
   setCurrentRow: (row: number) => void,
-  setResponse: (response: string) => void,
   setScores: (scores: number[][]) => void,
   setRoundOver: (roundOver: boolean) => void,
   setKnownLetters: (knownLetters: string[]) => void,
   sessionId: string | null,
   setSessionId: (sessionId: string) => void,
   setKeyboardStates: (states: Record<string, number>) => void,
-  setShowPopup: (show: boolean) => void
+  setShowPopup: (show: boolean) => void,
+  showToast: (message: string, type?: 'error' | 'info') => void
 }) {
   const handleReset = async () => {
     // Remove focus from the button to prevent accidental Enter key presses
@@ -329,7 +367,6 @@ export function ResetButton({
       const newGrid = Array(rows).fill(null).map(() => Array(cols).fill(''))
       setGrid(newGrid)
       setCurrentRow(0)
-      setResponse('')
       setScores(Array(rows).fill(null).map(() => Array(cols).fill(0)))
       setRoundOver(false)
       setKnownLetters(Array(cols).fill(''))
@@ -354,6 +391,7 @@ export function ResetButton({
       // Set session ID from response
       if (data.session_id) {
         setSessionId(data.session_id)
+        showToast('Nuovo gioco iniziato!')
       }
       
       // Handle guess_state from reset response
@@ -369,7 +407,7 @@ export function ResetButton({
       }
     } catch (error) {
       console.error('Reset failed:', error)
-      setResponse('Reset failed: ' + error)
+      showToast('Errore nel reset del gioco', 'error')
     }
   }
 
