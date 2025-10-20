@@ -16,6 +16,9 @@ function App() {
   const [knownLetters, setKnownLetters] = useState<string[]>([])
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [keyboardStates, setKeyboardStates] = useState<Record<string, number>>({})
+  const [showPopup, setShowPopup] = useState(false)
+  const [gameResult, setGameResult] = useState<{won: boolean, correctWord?: string}>({won: false})
+  const [showSettings, setShowSettings] = useState(false)
 
   // Initialize grid when selectedNumber changes
   useEffect(() => {
@@ -106,12 +109,32 @@ function App() {
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
-      minHeight: '100vh'
+      minHeight: '100vh',
+      position: 'relative'
     }}>
-      <NumberDropdown 
-        value={selectedNumber} 
-        onChange={setSelectedNumber} 
-      />
+      {/* Settings button in top right */}
+      <button
+        onClick={() => setShowSettings(true)}
+        style={{
+          position: 'absolute',
+          top: '10px',
+          right: '10px',
+          width: '40px',
+          height: '40px',
+          backgroundColor: '#3d3d3dff',
+          color: 'white',
+          border: 'none',
+          borderRadius: '5px',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '18px'
+        }}
+      >
+        ⚙️
+      </button>
+
       <ResetButton 
         wordLength={selectedNumber} 
         setGrid={setGrid}
@@ -123,6 +146,7 @@ function App() {
         sessionId={sessionId}
         setSessionId={setSessionId}
         setKeyboardStates={setKeyboardStates}
+        setShowPopup={setShowPopup}
       />
       <GameGrid grid={grid} scores={scores} />
       <VirtualKeyboard 
@@ -207,9 +231,21 @@ function App() {
               updateGridWithKnownLetters(data.guess_state, currentRow + 1)
             }
             
-            // Check if round is over and move to next row
+            // Check if round is over and show popup with delay
             if (data.round_over) {
               setRoundOver(true)
+              
+              // Determine if player won (all letters in current guess are correct)
+              const won = data.score && data.score.every((score: number) => score === 2)
+              
+              setTimeout(() => {
+                setGameResult({
+                  won,
+                  correctWord: data.current_word || data.word || 'Unknown'
+                })
+                setShowPopup(true)
+              }, 500) // 1.5 second delay
+              
               return
             } else {
               setCurrentRow(currentRow + 1)
@@ -225,22 +261,22 @@ function App() {
           window.dispatchEvent(event);
         }}
       />
-      <div style={{ marginTop: '20px', width: '100%', maxWidth: '350px' }}>
-        <textarea 
-          value={response} 
-          readOnly 
-          rows={3}
-          style={{ 
-            width: '100%', 
-            padding: '8px', 
-            resize: 'vertical',
-            boxSizing: 'border-box',
-            fontSize: '12px',
-            fontFamily: 'monospace'
-          }}
-          placeholder="Response will appear here..."
+      
+      {showPopup && (
+        <GameResultPopup 
+          won={gameResult.won}
+          correctWord={gameResult.correctWord}
+          onClose={() => setShowPopup(false)}
         />
-      </div>
+      )}
+
+      {showSettings && (
+        <SettingsPopup 
+          selectedNumber={selectedNumber}
+          setSelectedNumber={setSelectedNumber}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </div>
   )
 }
@@ -267,7 +303,8 @@ export function ResetButton({
   setKnownLetters,
   sessionId,
   setSessionId,
-  setKeyboardStates
+  setKeyboardStates,
+  setShowPopup
 }: { 
   wordLength: number,
   setGrid: (grid: string[][]) => void,
@@ -278,7 +315,8 @@ export function ResetButton({
   setKnownLetters: (knownLetters: string[]) => void,
   sessionId: string | null,
   setSessionId: (sessionId: string) => void,
-  setKeyboardStates: (states: Record<string, number>) => void
+  setKeyboardStates: (states: Record<string, number>) => void,
+  setShowPopup: (show: boolean) => void
 }) {
   const handleReset = async () => {
     // Remove focus from the button to prevent accidental Enter key presses
@@ -296,6 +334,7 @@ export function ResetButton({
       setRoundOver(false)
       setKnownLetters(Array(cols).fill(''))
       setKeyboardStates({})
+      setShowPopup(false)
       
       // Call backend reset
       const response = await fetch(`${API_URL}/reset`, {
@@ -464,6 +503,176 @@ export function VirtualKeyboard({
           ))}
         </div>
       ))}
+    </div>
+  )
+}
+
+export function GameResultPopup({ 
+  won, 
+  correctWord, 
+  onClose 
+}: { 
+  won: boolean
+  correctWord?: string
+  onClose: () => void 
+}) {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        backgroundColor: '#2d2d2d',
+        padding: '30px',
+        borderRadius: '10px',
+        textAlign: 'center',
+        color: 'white',
+        minWidth: '250px',
+        border: '2px solid #454545'
+      }}>
+        <h2 style={{
+          margin: '0 0 15px 0',
+          color: won ? '#39ad63ff' : '#ef4444',
+          fontSize: '24px'
+        }}>
+          {won ? '🎉 Congratulazioni!' : '😔 Game Over'}
+        </h2>
+        
+        <p style={{
+          margin: '0 0 20px 0',
+          fontSize: '18px'
+        }}>
+          {won ? 'Hai indovinato!' : `La parola era:`}
+        </p>
+        
+        {!won && correctWord && (
+          <div style={{
+            fontSize: '20px',
+            fontWeight: 'bold',
+            color: '#fbbf24',
+            margin: '0 0 20px 0',
+            letterSpacing: '2px'
+          }}>
+            {correctWord.toUpperCase()}
+          </div>
+        )}
+        
+        <button
+          onClick={onClose}
+          style={{
+            padding: '10px 20px',
+            fontSize: '16px',
+            backgroundColor: '#3d3d3dff',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer'
+          }}
+        >
+          Continue
+        </button>
+      </div>
+    </div>
+  )
+}
+
+export function SettingsPopup({ 
+  selectedNumber, 
+  setSelectedNumber, 
+  onClose 
+}: { 
+  selectedNumber: number
+  setSelectedNumber: (value: number) => void
+  onClose: () => void 
+}) {
+  return (
+    <div style={{
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(0, 0, 0, 0.7)',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      zIndex: 1000
+    }}>
+      <div style={{
+        backgroundColor: '#2d2d2d',
+        padding: '30px',
+        borderRadius: '10px',
+        color: 'white',
+        minWidth: '300px',
+        border: '2px solid #454545'
+      }}>
+        <h2 style={{
+          margin: '0 0 20px 0',
+          fontSize: '24px',
+          textAlign: 'center'
+        }}>
+          ⚙️ Impostazioni
+        </h2>
+        
+        <div style={{
+          marginBottom: '20px'
+        }}>
+          <label style={{
+            display: 'block',
+            marginBottom: '10px',
+            fontSize: '16px'
+          }}>
+            Lunghezza parola:
+          </label>
+          <select 
+            value={selectedNumber} 
+            onChange={(e) => setSelectedNumber(Number(e.target.value))}
+            style={{
+              width: '100%',
+              padding: '8px',
+              fontSize: '16px',
+              backgroundColor: '#454545ff',
+              color: 'white',
+              border: '1px solid #646464ff',
+              borderRadius: '4px'
+            }}
+          >
+            {[5, 6, 7, 8, 9].map(num => (
+              <option key={num} value={num}>
+                {num} lettere
+              </option>
+            ))}
+          </select>
+        </div>
+        
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center'
+        }}>
+          <button
+            onClick={onClose}
+            style={{
+              padding: '10px 20px',
+              fontSize: '16px',
+              backgroundColor: '#3d3d3dff',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: 'pointer'
+            }}
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
